@@ -56,7 +56,10 @@ void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(RF_D0_GPIO_Port, RF_D0_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, HEART_BEAT_Pin|RF_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(HEART_BEAT_GPIO_Port, HEART_BEAT_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(RF_CS_GPIO_Port, RF_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PBPin PBPin */
   GPIO_InitStruct.Pin = RF_RST_Pin|COMMON_CONTROL_Pin;

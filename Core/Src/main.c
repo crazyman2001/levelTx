@@ -20,6 +20,7 @@
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
+#include "rtc.h"
 #include "spi.h"
 #include "usart.h"
 #include "gpio.h"
@@ -75,6 +76,27 @@ uint8_t readLevel(void)
 	HAL_Delay(300);
 	return ret;
 }
+
+void enterShutDown(void)
+{
+	// Enable PWR clock
+	    __HAL_RCC_PWR_CLK_ENABLE();
+	    HAL_SuspendTick();
+	    // Clear reset flags after handling
+	        __HAL_RCC_CLEAR_RESET_FLAGS();
+
+	        // Enable wake-up pin (if using external wake-up)
+	        HAL_PWR_DisableWakeUpPin(PWR_WAKEUP_PIN1|PWR_FLAG_WUF);
+
+	// Clear Wake-Up Flags
+	    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
+	    // Configure Low-Power Mode
+	      //HAL_PWREx_EnableLowPowerRunMode();
+	    // Enter Shutdown Mode
+	      HAL_PWR_EnterSTANDBYMode();
+	      /*HAL_PWR_EnterSHUTDOWNMode();
+	        HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);*/
+}
 /* USER CODE END 0 */
 
 /**
@@ -85,7 +107,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	uint8_t levelVar, bufTx[5];
+	uint8_t levelVar, bufTx[5], counter = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -117,6 +139,7 @@ int main(void)
   MX_SPI1_Init();
   MX_USART1_UART_Init();
   MX_ADC1_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
   LoRa_init(&myLoRa);
   HAL_Delay(500);
@@ -127,28 +150,62 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  HAL_UART_Transmit(&huart1, (const uint8_t *)"Level Tx unit", 13, 100);
+	if (__HAL_RCC_GET_FLAG(RCC_FLAG_PINRST)) {
+		for(int i = 0; i < 10; i++)
+		{
+		  HAL_GPIO_TogglePin(HEART_BEAT_GPIO_Port, HEART_BEAT_Pin);
+		  HAL_Delay(100);
+		}
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) {
+	    counter = 2;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_PWRRST)) {
+	    counter = 3;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST)) {
+	    counter = 4;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_LPWRRST)) {
+	    counter = 5;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {
+	    counter = 5;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_WWDGRST)) {
+	    counter = 5;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_OBLRST)){
+	    counter = 4;
+	}
+  /*for(int i = 0; i < 11; i++)
+  {
+	  HAL_GPIO_TogglePin(HEART_BEAT_GPIO_Port, HEART_BEAT_Pin);
+	  HAL_Delay(100);
+  }
+  HAL_UART_Transmit(&huart1, (const uint8_t *)"Level Tx unit", 13, 100);*/
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  for(int i = 0; i < 3; i++)
+	  //for(int i = 0; i < 3; i++)
 	  {
 		  //packet_size = LoRa_receive(&myLoRa, received_data, 20);
 		  /*if(packet_size > 0)
 		  {
 			  HAL_UART_Transmit(&huart1, (const uint8_t *)received_data, packet_size, 100);
 		  }*/
-		  HAL_GPIO_WritePin(HEART_BEAT_GPIO_Port, HEART_BEAT_Pin, 0);
+		  /*HAL_GPIO_WritePin(HEART_BEAT_GPIO_Port, HEART_BEAT_Pin, 0);
 		  HAL_Delay(1000);
 		  HAL_GPIO_WritePin(HEART_BEAT_GPIO_Port, HEART_BEAT_Pin, 1);
-		  HAL_Delay(1000);
+		  HAL_Delay(1000);*/
 	  }
 	  levelVar = readLevel();
 	  bufTx[0] = (levelVar/10)|0x30;
 	  bufTx[1] = (levelVar%10)|0x30;
 	  LoRa_transmit(&myLoRa, (uint8_t*)bufTx, 2, 100);
+	  if(counter < 3)
+		  counter++;
+	  else
+	  {
+		  counter = 0;
+		  enterShutDown();
+	  }
+	  HAL_Delay(100);
 	 // HAL_UART_Transmit(&huart1, (const uint8_t *)&levelVar, 1, 100);
   }
   /* USER CODE END 3 */
@@ -170,10 +227,11 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV8;
+  RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV16;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -185,7 +243,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
